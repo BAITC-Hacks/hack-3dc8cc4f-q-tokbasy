@@ -97,6 +97,51 @@ class RecommendationEngine:
             "critical_gaps": [item for item in gaps if item["critical"] and item["gap"] > 0],
         }
 
+    def hr_dashboard(self) -> dict[str, Any]:
+        """Aggregate the same live gaps, recommendations, and history used elsewhere."""
+        gap_counts: Counter[str] = Counter()
+        employees_without_recommendations = 0
+        for employee in self.data.employees:
+            employee_id = employee["employee_id"]
+            report = self.career_gap(employee_id)
+            if report:
+                gap_counts.update(
+                    gap["skill_id"] for gap in report["skill_gaps"] if gap["gap"] > 0
+                )
+            if not self.recommendations(employee_id):
+                employees_without_recommendations += 1
+
+        top_skill_gaps = [
+            {
+                "skill_id": skill_id,
+                "skill_name": self.data.skills_by_id[skill_id]["name"],
+                "employee_count": employee_count,
+            }
+            for skill_id, employee_count in sorted(
+                gap_counts.items(),
+                key=lambda item: (-item[1], self.data.skills_by_id[item[0]]["name"], item[0]),
+            )[:5]
+        ]
+        activity_counts = Counter(record["status"] for record in self.data.activities)
+        statuses = ("completed", "in_progress", "no_show", "declined", "dropped", "overdue")
+        total_records = len(self.data.activities)
+        completed_records = activity_counts["completed"]
+        return {
+            "total_employees": len(self.data.employees),
+            "top_skill_gaps": top_skill_gaps,
+            "employees_without_recommendations": employees_without_recommendations,
+            "activity_status_counts": {
+                status: activity_counts[status] for status in statuses
+            },
+            "participation_summary": {
+                "total_activity_records": total_records,
+                "completed_records": completed_records,
+                "completion_rate_percentage": round(
+                    100 * completed_records / total_records, 1
+                ) if total_records else 0.0,
+            },
+        }
+
     def _history_signal(self, employee_id: str, event: dict[str, Any]) -> dict[str, Any]:
         similar_ids = {
             item["event_id"] for item in self.data.events if item["type"] == event["type"]
