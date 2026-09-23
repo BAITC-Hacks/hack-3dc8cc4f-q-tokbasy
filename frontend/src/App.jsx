@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -14,6 +14,21 @@ function App() {
   const [recommendations, setRecommendations] = useState([])
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
+  const [completion, setCompletion] = useState(null)
+
+  const loadProfile = useCallback(async (employeeId, signal) => {
+    const responses = await Promise.all([
+      fetch(`${API_URL}/api/employees/${employeeId}`, { signal }),
+      fetch(`${API_URL}/api/employees/${employeeId}/career-gap`, { signal }),
+      fetch(`${API_URL}/api/employees/${employeeId}/ai-recommendations`, { signal }),
+    ])
+    if (!responses.every((response) => response.ok)) throw new Error('Profile request failed')
+    const [loadedProfile, loadedGap, loadedRecommendations] = await Promise.all(responses.map((response) => response.json()))
+    setProfile(loadedProfile)
+    setCareerGap(loadedGap)
+    setRecommendations(loadedRecommendations.recommendations)
+    setError('')
+  }, [])
 
   useEffect(() => {
     fetch(`${API_URL}/api/employees`)
@@ -28,22 +43,27 @@ function App() {
     setProfile(null)
     setCareerGap(null)
     setRecommendations([])
+    setCompletion(null)
     setError('')
-    Promise.all([
-      fetch(`${API_URL}/api/employees/${selectedId}`, { signal: controller.signal }),
-      fetch(`${API_URL}/api/employees/${selectedId}/career-gap`, { signal: controller.signal }),
-      fetch(`${API_URL}/api/employees/${selectedId}/ai-recommendations`, { signal: controller.signal }),
-    ])
-      .then((responses) => responses.every((response) => response.ok) ? Promise.all(responses.map((response) => response.json())) : Promise.reject())
-      .then(([loadedProfile, loadedGap, loadedRecommendations]) => {
-        setProfile(loadedProfile)
-        setCareerGap(loadedGap)
-        setRecommendations(loadedRecommendations.recommendations)
-        setError('')
-      })
+    loadProfile(selectedId, controller.signal)
       .catch((requestError) => { if (requestError.name !== 'AbortError') setError('Unable to load this employee profile.') })
     return () => controller.abort()
-  }, [selectedId])
+  }, [selectedId, loadProfile])
+
+  const completeQuest = async (eventId) => {
+    const response = await fetch(`${API_URL}/api/employees/${selectedId}/complete-quest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_id: eventId }),
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      throw new Error(body.detail || 'Unable to complete this quest.')
+    }
+    const result = await response.json()
+    setCompletion(result)
+    await loadProfile(selectedId)
+  }
 
   const filteredEmployees = useMemo(() => {
     const value = query.toLowerCase()
@@ -57,7 +77,7 @@ function App() {
       <header>
         <div className="brand-mark">CQ</div>
         <div><h1>Career Quest</h1><p>Career Development Platform</p></div>
-        <span className="iteration">MVP · Iteration 3</span>
+        <span className="iteration">MVP · Iteration 4</span>
       </header>
 
       <div className="layout">
@@ -79,15 +99,16 @@ function App() {
         <main>
           {error && <div className="error">{error} Start the backend, then refresh this page.</div>}
           {!error && !profile && <div className="loading">Loading profile…</div>}
-          {profile && <Profile profile={profile} careerGap={careerGap} recommendations={recommendations} />}
+          {profile && <Profile profile={profile} careerGap={careerGap} recommendations={recommendations} completion={completion} onComplete={completeQuest} />}
         </main>
       </div>
     </div>
   )
 }
 
-function Profile({ profile, careerGap, recommendations }) {
+function Profile({ profile, careerGap, recommendations, completion, onComplete }) {
   return <>
+    {completion && <div className="success-banner" role="status"><strong>QUEST COMPLETED ✓</strong><span>{completion.event_title}</span><span>{completion.skill_changes.map((change) => `${change.skill_name} ${change.before} → ${change.after}`).join(' · ')}</span><span>Career readiness {completion.career_readiness_before}% → {completion.career_readiness_after}%</span></div>}
     <section className="profile-card">
       <div className="profile-top">
         <span className="avatar large">{initials(profile.full_name)}</span>
@@ -112,7 +133,7 @@ function Profile({ profile, careerGap, recommendations }) {
 
       <section className="recommendations-section">
         <div className="recommendations-heading"><div><span className="eyebrow coach-label">✨ AI CAREER COACH</span><h3>Recommended quests</h3></div><small>Verified deterministic career matches</small></div>
-        <div className="quest-grid">{recommendations.map((recommendation) => <QuestCard key={recommendation.event_id} recommendation={recommendation} />)}{!recommendations.length && <div className="panel empty">No genuinely useful eligible activities are available.</div>}</div>
+        <div className="quest-grid">{recommendations.map((recommendation) => <QuestCard key={recommendation.event_id} recommendation={recommendation} onComplete={onComplete} />)}{!recommendations.length && <div className="panel empty">No genuinely useful eligible activities are available.</div>}</div>
       </section>
     </>}
 
@@ -132,14 +153,26 @@ function Profile({ profile, careerGap, recommendations }) {
   </>
 }
 
-function QuestCard({ recommendation }) {
+function QuestCard({ recommendation, onComplete }) {
   const explanation = recommendation.explanation
+  const [completing, setCompleting] = useState(false)
+  const [completionError, setCompletionError] = useState('')
+  const submit = async () => {
+    if (completing) return
+    setCompleting(true)
+    setCompletionError('')
+    try { await onComplete(recommendation.event_id) }
+    catch (error) { setCompletionError(error.message) }
+    finally { setCompleting(false) }
+  }
   return <article className="panel quest-card">
     <div className="quest-top"><span>{pretty(recommendation.event_type)}</span><span className={`coach-badge ${explanation?.source === 'openai' ? 'ai' : ''}`}>{explanation?.source === 'openai' ? 'AI explained' : 'Smart explanation'}</span><strong>{recommendation.score}%</strong></div>
     <h4>{recommendation.title}</h4><small className="match-label">CAREER MATCH</small>
     <div className="impact-list">{recommendation.skill_impacts.map((impact) => <div key={impact.skill_id}><strong>{impact.skill_name}</strong><small>Current: {impact.current_level} <span>After quest: {impact.possible_new_level}</span> Target: {impact.target_level}</small></div>)}</div>
     <div className="why"><b>WHY THIS QUEST?</b>{(explanation?.why_this_quest || recommendation.reasons.map((reason) => reason.text)).map((reason, index) => <p key={index}><span>✓</span>{reason}</p>)}</div>
     {explanation && <div className="coach-copy"><b>CAREER CONNECTION</b><p>{explanation.career_connection}</p><small><strong>Expected impact:</strong> {explanation.expected_impact}</small><small>{explanation.history_insight}</small></div>}
+    {completionError && <p className="quest-error" role="alert">{completionError}</p>}
+    <button className="complete-button" type="button" disabled={completing} onClick={submit}>{completing ? 'Completing...' : 'COMPLETE QUEST'}</button>
   </article>
 }
 

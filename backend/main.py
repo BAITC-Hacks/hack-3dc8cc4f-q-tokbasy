@@ -1,12 +1,14 @@
 """Career Quest API."""
 
 import asyncio
+from threading import Lock
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from data_loader import CareerQuestData
-from recommendation_engine import RecommendationEngine
+from recommendation_engine import RECURRING_EVENT_IDS, RecommendationEngine
 from ai_service import AICareerCoach, verified_facts
 
 
@@ -22,6 +24,11 @@ app.add_middleware(
 data = CareerQuestData()
 engine = RecommendationEngine(data)
 ai_coach = AICareerCoach()
+completion_lock = Lock()
+
+
+class CompleteQuestRequest(BaseModel):
+    event_id: str
 
 
 @app.get("/health")
@@ -56,6 +63,71 @@ def get_recommendations(employee_id: str) -> list[dict]:
     if recommendations is None:
         raise HTTPException(status_code=404, detail="Employee not found")
     return recommendations
+
+
+@app.post("/api/employees/{employee_id}/complete-quest")
+def complete_quest(employee_id: str, request: CompleteQuestRequest) -> dict:
+    """Apply catalog-defined effects to the session's in-memory state."""
+    with completion_lock:
+        employee = data.employees_by_id.get(employee_id)
+        if employee is None:
+            raise HTTPException(status_code=404, detail="Employee not found")
+        event = data.events_by_id.get(request.event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        already_completed = any(
+            activity["employee_id"] == employee_id
+            and activity["event_id"] == request.event_id
+            and activity["status"] == "completed"
+            for activity in data.activities
+        )
+        if already_completed and request.event_id not in RECURRING_EVENT_IDS:
+            raise HTTPException(status_code=409, detail="Quest already completed")
+
+        useful_events = {
+            item["event_id"] for item in (engine.recommendations(employee_id, limit=len(data.events)) or [])
+        }
+        if request.event_id not in useful_events:
+            raise HTTPException(
+                status_code=422,
+                detail="Event is not currently eligible and useful for this employee",
+            )
+
+        readiness_before = engine.career_gap(employee_id)["career_readiness"]
+        skill_changes = []
+        for effect in event["develops_skills"]:
+            skill_id = effect["skill_id"]
+            before = employee["skills"].get(skill_id, 0)
+            after = min(before + effect["gain"], effect["max_level"], 5)
+            employee["skills"][skill_id] = after
+            skill_changes.append({
+                "skill_id": skill_id,
+                "skill_name": data.skills_by_id.get(skill_id, {}).get("name", skill_id),
+                "before": before,
+                "after": after,
+                "actual_gain": after - before,
+            })
+
+        sequence = sum(record["record_id"].startswith("RUNTIME_") for record in data.activities) + 1
+        data.activities.append({
+            "record_id": f"RUNTIME_{sequence:04d}",
+            "employee_id": employee_id,
+            "event_id": request.event_id,
+            "date": engine.snapshot_date.isoformat(),
+            "status": "completed",
+            "completion_pct": "100",
+        })
+        readiness_after = engine.career_gap(employee_id)["career_readiness"]
+        return {
+            "employee_id": employee_id,
+            "event_id": request.event_id,
+            "event_title": event["title"],
+            "status": "completed",
+            "skill_changes": skill_changes,
+            "career_readiness_before": readiness_before,
+            "career_readiness_after": readiness_after,
+        }
 
 
 @app.get("/api/employees/{employee_id}/ai-recommendations")

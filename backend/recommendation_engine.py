@@ -18,6 +18,10 @@ STATUS_WEIGHTS = {
     "overdue": -0.5,
 }
 
+# The supplied catalog identifies EV_036 in its description as repeatable; no
+# generic recurring flag exists in the event schema.
+RECURRING_EVENT_IDS = {"EV_036"}
+
 
 class RecommendationEngine:
     """Rank useful activities using grade gaps, gains, audience, and history.
@@ -132,7 +136,10 @@ class RecommendationEngine:
         results = []
 
         for event in self.data.events:
-            if event["mandatory"] or (event["event_id"] in completed_ids and event["event_id"] != "EV_036"):
+            if event["mandatory"] or (
+                event["event_id"] in completed_ids
+                and event["event_id"] not in RECURRING_EVENT_IDS
+            ):
                 continue
             role_match = target_role in event["target_roles"]
             # Development activities may be aimed at the employee's current
