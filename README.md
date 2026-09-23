@@ -39,6 +39,15 @@ Open `http://localhost:5173`. To use a different API address, set
 - `POST /api/employees/{employee_id}/complete-quest` with `{"event_id": "EV_005"}`
 - `GET /api/events`
 - `GET /api/skills`
+- `GET /api/hr/dashboard`
+
+## HR Dashboard
+
+Switch to **HR** in the application header to see common target-grade
+competency gaps, employees without a recommended next step, and aggregate
+participation and completion statistics. The dashboard uses the same
+deterministic career-gap logic and in-memory runtime state as the employee
+experience, so completed quests are reflected immediately.
 
 ## Recommendation Engine
 

@@ -7,6 +7,7 @@ const displayDate = (date) => new Intl.DateTimeFormat('en', { day: 'numeric', mo
 const pretty = (value) => value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 
 function App() {
+  const [mode, setMode] = useState('employee')
   const [employees, setEmployees] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -15,6 +16,8 @@ function App() {
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [completion, setCompletion] = useState(null)
+  const [hrDashboard, setHrDashboard] = useState(null)
+  const [hrError, setHrError] = useState('')
 
   const loadProfile = useCallback(async (employeeId, signal) => {
     const responses = await Promise.all([
@@ -50,6 +53,20 @@ function App() {
     return () => controller.abort()
   }, [selectedId, loadProfile])
 
+  useEffect(() => {
+    if (mode !== 'hr') return
+    const controller = new AbortController()
+    setHrDashboard(null)
+    setHrError('')
+    fetch(`${API_URL}/api/hr/dashboard`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error()))
+      .then(setHrDashboard)
+      .catch((requestError) => {
+        if (requestError.name !== 'AbortError') setHrError('Unable to load the HR dashboard.')
+      })
+    return () => controller.abort()
+  }, [mode])
+
   const completeQuest = async (eventId) => {
     const response = await fetch(`${API_URL}/api/employees/${selectedId}/complete-quest`, {
       method: 'POST',
@@ -77,10 +94,14 @@ function App() {
       <header>
         <div className="brand-mark">CQ</div>
         <div><h1>Career Quest</h1><p>Career Development Platform</p></div>
+        <nav className="mode-switch" aria-label="Dashboard mode">
+          <button className={mode === 'employee' ? 'active' : ''} onClick={() => setMode('employee')}>EMPLOYEE</button>
+          <button className={mode === 'hr' ? 'active' : ''} onClick={() => setMode('hr')}>HR</button>
+        </nav>
         <span className="iteration">MVP · Iteration 4</span>
       </header>
 
-      <div className="layout">
+      {mode === 'employee' ? <div className="layout">
         <aside>
           <div className="team-heading"><div><span>TEAM DIRECTORY</span><strong>{employees.length} employees</strong></div></div>
           <label className="search"><span>⌕</span><input aria-label="Search employees" placeholder="Search people or roles" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
@@ -101,9 +122,49 @@ function App() {
           {!error && !profile && <div className="loading">Loading profile…</div>}
           {profile && <Profile profile={profile} careerGap={careerGap} recommendations={recommendations} completion={completion} onComplete={completeQuest} />}
         </main>
-      </div>
+      </div> : <main className="hr-main">
+        {hrError && <div className="error">{hrError} Start the backend, then refresh this page.</div>}
+        {!hrError && !hrDashboard && <div className="loading">Loading HR dashboard…</div>}
+        {hrDashboard && <HRDashboard dashboard={hrDashboard} />}
+      </main>}
     </div>
   )
+}
+
+const statusOrder = ['completed', 'in_progress', 'no_show', 'declined', 'dropped', 'overdue']
+
+function HRDashboard({ dashboard }) {
+  const participation = dashboard.participation_summary
+  const maximumGap = Math.max(...dashboard.top_skill_gaps.map((gap) => gap.employee_count), 1)
+  return <div className="hr-dashboard">
+    <div className="hr-heading"><span className="eyebrow">ORGANIZATION OVERVIEW</span><h2>HR DASHBOARD</h2><p>Live career development and participation insights</p></div>
+    <section className="summary-grid">
+      <SummaryCard label="Total Employees" value={dashboard.total_employees} />
+      <SummaryCard label="Completion Rate" value={`${participation.completion_rate_percentage}%`} />
+      <SummaryCard label="Employees Without Recommendations" value={dashboard.employees_without_recommendations} />
+      <SummaryCard label="Total Activity Records" value={participation.total_activity_records} />
+    </section>
+    <div className="hr-grid">
+      <section className="panel hr-panel">
+        <div className="panel-title"><div><span className="section-icon">✦</span><h3>TOP SKILL GAPS</h3></div><small>Employees below target</small></div>
+        <div className="gap-list">{dashboard.top_skill_gaps.map((gap) => <article key={gap.skill_id}>
+          <div><strong>{gap.skill_name}</strong><span>{gap.employee_count} employees</span></div>
+          <div className="gap-bar"><i style={{ width: `${100 * gap.employee_count / maximumGap}%` }} /></div>
+        </article>)}</div>
+      </section>
+      <section className="panel hr-panel">
+        <div className="panel-title"><div><span className="section-icon">◴</span><h3>ACTIVITY PARTICIPATION</h3></div><small>{participation.completed_records} completed</small></div>
+        <div className="status-grid">{statusOrder.map((status) => <article key={status}>
+          <span className={`status-dot ${status}`} />
+          <div><small>{pretty(status)}</small><strong>{dashboard.activity_status_counts[status]}</strong></div>
+        </article>)}</div>
+      </section>
+    </div>
+  </div>
+}
+
+function SummaryCard({ label, value }) {
+  return <article className="panel summary-card"><small>{label}</small><strong>{value}</strong></article>
 }
 
 function Profile({ profile, careerGap, recommendations, completion, onComplete }) {

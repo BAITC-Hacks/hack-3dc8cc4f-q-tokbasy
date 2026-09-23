@@ -161,3 +161,10 @@ def list_events() -> list[dict]:
 @app.get("/api/skills")
 def list_skills() -> list[dict]:
     return data.skills
+
+
+@app.get("/api/hr/dashboard")
+def get_hr_dashboard() -> dict:
+    """Return dataset-backed aggregates including in-memory quest completions."""
+    with completion_lock:
+        return engine.hr_dashboard()
