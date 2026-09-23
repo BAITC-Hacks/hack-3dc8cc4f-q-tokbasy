@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,12 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "career_quest_dataset"
 
 
 class CareerQuestData:
-    """In-memory, read-only view of the hackathon dataset."""
+    """Dataset catalog plus a resettable, in-memory employee state overlay.
+
+    JSON and CSV files are read once at startup.  Employee records and activity
+    rows are deep-copied before they are exposed to runtime mutations, so quest
+    completion never writes to or aliases the source documents.
+    """
 
     def __init__(self, data_dir: Path = DATA_DIR) -> None:
         self.data_dir = data_dir
@@ -20,11 +26,11 @@ class CareerQuestData:
         skills_document = self._read_json("skills.json")
         events_document = self._read_json("events.json")
 
-        self.employees: list[dict[str, Any]] = employees_document["employees"]
+        self.employees: list[dict[str, Any]] = copy.deepcopy(employees_document["employees"])
         self.skills: list[dict[str, Any]] = skills_document["skills"]
         self.role_profiles: list[dict[str, Any]] = skills_document["role_profiles"]
         self.events: list[dict[str, Any]] = events_document["events"]
-        self.activities = self._read_activities()
+        self.activities = copy.deepcopy(self._read_activities())
 
         self.employees_by_id = {item["employee_id"]: item for item in self.employees}
         self.skills_by_id = {item["skill_id"]: item for item in self.skills}

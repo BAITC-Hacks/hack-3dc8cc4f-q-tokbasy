@@ -36,6 +36,7 @@ Open `http://localhost:5173`. To use a different API address, set
 - `GET /api/employees/{employee_id}/career-gap`
 - `GET /api/employees/{employee_id}/recommendations`
 - `GET /api/employees/{employee_id}/ai-recommendations`
+- `POST /api/employees/{employee_id}/complete-quest` with `{"event_id": "EV_005"}`
 - `GET /api/events`
 - `GET /api/skills`
 
@@ -144,6 +145,28 @@ with `"source": "deterministic"`. The employee dashboard therefore does not
 depend on OpenAI availability. English (`en`), Russian (`ru`), and Kazakh (`kk`)
 preferences are passed as output-language instructions; all underlying facts
 remain unchanged.
+
+## Quest Completion and Progress Updates
+
+Iteration 4 adds the complete feedback loop to every recommended quest:
+
+**Recommended Quest → Employee completes activity → Apply event gain/max_level
+→ Update runtime skills → Recalculate career readiness → Recalculate
+recommendations → Refresh AI explanations**
+
+`POST /api/employees/{employee_id}/complete-quest` accepts an `event_id`, checks
+that the employee and event exist, and verifies that the deterministic engine
+currently considers the event eligible and useful. For each skill listed in
+the real `events.json` effect, the backend applies
+`min(current level + gain, event max_level, 5)` and reports the actual gain,
+including zero. It records the completion in recent activity and rejects a
+second completion of a non-recurring event. The profile, gap, deterministic
+recommendation, and AI-coach endpoints all read the updated state immediately.
+
+The original hackathon JSON and CSV dataset files are **never modified**.
+Runtime employee skills and activity history are held only in memory for this
+demo. Restarting the backend resets all quest completions and progress changes
+to the original dataset snapshot.
 
 ## Validation
 
