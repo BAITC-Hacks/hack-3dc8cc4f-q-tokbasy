@@ -1,8 +1,9 @@
 # Career Quest
 
-Career Quest is an iteration-one HR career development dashboard. It uses the
+Career Quest is an HR career development dashboard. It uses the
 provided synthetic employee, skill, event, and activity datasets to present a
-searchable team directory and employee development profiles.
+searchable team directory, employee development profiles, career readiness,
+and deterministic activity recommendations.
 
 ## Run the backend
 
@@ -32,5 +33,70 @@ Open `http://localhost:5173`. To use a different API address, set
 - `GET /health`
 - `GET /api/employees`
 - `GET /api/employees/{employee_id}`
+- `GET /api/employees/{employee_id}/career-gap`
+- `GET /api/employees/{employee_id}/recommendations`
 - `GET /api/events`
 - `GET /api/skills`
+
+## Recommendation Engine
+
+The recommendation pipeline uses only the supplied Career Quest dataset:
+
+**Employee Profile → Target Grade → Skill Gap Analysis → Candidate Events →
+Participation History → Multi-factor Scoring → Top 3 Recommendations**
+
+The employee's explicit `career_goal` selects the target role and grade when
+present. Otherwise, the engine derives the next grade from the ordered role
+profiles in `skills.json` (a Lead remains at Lead). For every required target
+skill, it calculates `gap = max(target_level - current_level, 0)`. Career
+readiness is the percentage of total required proficiency already met:
+
+```text
+100 × sum(min(current level, required level)) / sum(required levels)
+```
+
+Mandatory events, events outside the target role and current/target-grade audiences, events whose
+prerequisites are unmet, previously completed non-recurring events, and events
+that cannot actually improve a required skill are excluded. Actual improvement
+always observes the catalog cap:
+
+```text
+possible new level = min(current level + event gain, event max_level)
+actual gain = possible new level - current level
+```
+
+Each eligible, useful event receives up to 100 points:
+
+| Factor | Points | Calculation |
+|---|---:|---|
+| Target-grade gap severity | 35 | Weighted mean of `gap / 5` across affected skills |
+| Grade relevance | 25 | `85% × weighted target-level strength + 15% × useful-gap breadth` |
+| Realizable skill gain | 20 | Weighted mean of `actual_gain / catalog event gain` |
+| Participation history | 10 | `5 × (history signal + 1)`, mapping `-1…1` to `0…10` |
+| Explicit career-goal relevance | 5 | Awarded when the event audience matches the explicit target role |
+| Audience and prerequisite eligibility | 5 | Awarded after strict eligibility filtering |
+
+Critical target skills have weight `1.5`; other required skills have weight
+`1.0`. The history signal is a recency-weighted average for activities of the
+same real event type. Status weights are: completed `+1.0`, in progress
+`+0.25`, overdue `-0.5`, dropped `-0.6`, declined `-0.65`, and no-show `-0.75`.
+Recent records receive more weight, while a person with no similar history gets
+a neutral five history points. Scores are capped at 100, rounded to one decimal,
+and ties are broken by event ID.
+
+This is more reliable than recommending the employee's numerically weakest
+skill because a low skill might not be required by the target role, an event
+might be capped below the employee's current level, prerequisites or audience
+may make it unsuitable, or participation patterns may favor another equally
+useful format. Every output includes its score components, exact skill impacts,
+event gain/cap, history counts and signal, and factual reasons. There is no
+randomness, LLM, or external service, so identical data always yields identical
+recommendations.
+
+## Validation
+
+Run the dataset-backed unit assertions without additional packages:
+
+```bash
+PYTHONPATH=backend python -m unittest discover -s backend -p 'test_*.py' -v
+```
