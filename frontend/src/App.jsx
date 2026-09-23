@@ -32,13 +32,13 @@ function App() {
     Promise.all([
       fetch(`${API_URL}/api/employees/${selectedId}`, { signal: controller.signal }),
       fetch(`${API_URL}/api/employees/${selectedId}/career-gap`, { signal: controller.signal }),
-      fetch(`${API_URL}/api/employees/${selectedId}/recommendations`, { signal: controller.signal }),
+      fetch(`${API_URL}/api/employees/${selectedId}/ai-recommendations`, { signal: controller.signal }),
     ])
       .then((responses) => responses.every((response) => response.ok) ? Promise.all(responses.map((response) => response.json())) : Promise.reject())
       .then(([loadedProfile, loadedGap, loadedRecommendations]) => {
         setProfile(loadedProfile)
         setCareerGap(loadedGap)
-        setRecommendations(loadedRecommendations)
+        setRecommendations(loadedRecommendations.recommendations)
         setError('')
       })
       .catch((requestError) => { if (requestError.name !== 'AbortError') setError('Unable to load this employee profile.') })
@@ -57,7 +57,7 @@ function App() {
       <header>
         <div className="brand-mark">CQ</div>
         <div><h1>Career Quest</h1><p>Career Development Platform</p></div>
-        <span className="iteration">MVP · Iteration 2</span>
+        <span className="iteration">MVP · Iteration 3</span>
       </header>
 
       <div className="layout">
@@ -111,7 +111,7 @@ function Profile({ profile, careerGap, recommendations }) {
       </section>
 
       <section className="recommendations-section">
-        <div className="recommendations-heading"><div><span className="eyebrow">CAREER RECOMMENDATION</span><h3>Recommended quests</h3></div><small>Deterministic career matches</small></div>
+        <div className="recommendations-heading"><div><span className="eyebrow coach-label">✨ AI CAREER COACH</span><h3>Recommended quests</h3></div><small>Verified deterministic career matches</small></div>
         <div className="quest-grid">{recommendations.map((recommendation) => <QuestCard key={recommendation.event_id} recommendation={recommendation} />)}{!recommendations.length && <div className="panel empty">No genuinely useful eligible activities are available.</div>}</div>
       </section>
     </>}
@@ -133,11 +133,13 @@ function Profile({ profile, careerGap, recommendations }) {
 }
 
 function QuestCard({ recommendation }) {
+  const explanation = recommendation.explanation
   return <article className="panel quest-card">
-    <div className="quest-top"><span>{pretty(recommendation.event_type)}</span><strong>{recommendation.score}%</strong></div>
+    <div className="quest-top"><span>{pretty(recommendation.event_type)}</span><span className={`coach-badge ${explanation?.source === 'openai' ? 'ai' : ''}`}>{explanation?.source === 'openai' ? 'AI explained' : 'Smart explanation'}</span><strong>{recommendation.score}%</strong></div>
     <h4>{recommendation.title}</h4><small className="match-label">CAREER MATCH</small>
     <div className="impact-list">{recommendation.skill_impacts.map((impact) => <div key={impact.skill_id}><strong>{impact.skill_name}</strong><small>Current: {impact.current_level} <span>After quest: {impact.possible_new_level}</span> Target: {impact.target_level}</small></div>)}</div>
-    <div className="why"><b>WHY THIS QUEST?</b>{recommendation.reasons.map((reason, index) => <p key={`${reason.factor}-${index}`}><span>✓</span>{reason.text}</p>)}</div>
+    <div className="why"><b>WHY THIS QUEST?</b>{(explanation?.why_this_quest || recommendation.reasons.map((reason) => reason.text)).map((reason, index) => <p key={index}><span>✓</span>{reason}</p>)}</div>
+    {explanation && <div className="coach-copy"><b>CAREER CONNECTION</b><p>{explanation.career_connection}</p><small><strong>Expected impact:</strong> {explanation.expected_impact}</small><small>{explanation.history_insight}</small></div>}
   </article>
 }
 

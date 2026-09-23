@@ -35,6 +35,7 @@ Open `http://localhost:5173`. To use a different API address, set
 - `GET /api/employees/{employee_id}`
 - `GET /api/employees/{employee_id}/career-gap`
 - `GET /api/employees/{employee_id}/recommendations`
+- `GET /api/employees/{employee_id}/ai-recommendations`
 - `GET /api/events`
 - `GET /api/skills`
 
@@ -92,6 +93,57 @@ useful format. Every output includes its score components, exact skill impacts,
 event gain/cap, history counts and signal, and factual reasons. There is no
 randomness, LLM, or external service, so identical data always yields identical
 recommendations.
+
+## AI Career Coach
+
+The optional coach adds a concise, personalized explanation to each of the top
+three verified recommendations:
+
+**Employee Profile → Skill Gap Analysis → Multi-factor Recommendation Engine →
+Verified Top Recommendations → OpenAI Explanation Layer → Employee-facing
+Career Coach**
+
+The LLM is **not** the recommendation source of truth. The deterministic engine
+continues to calculate eligibility, rankings, score components, history signals,
+and exact skill impacts. OpenAI receives a small allow-listed fact object and
+only makes those verified results easier to understand. Its response is nested
+under `explanation`, so it cannot replace an event ID, score, or skill gain.
+
+Copy the example environment file or set these variables in the backend
+process (never commit a real key):
+
+```dotenv
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+The configured model defaults to the cost-efficient `gpt-4.1-mini`. The integration uses the
+official Python SDK's Responses API with strict structured JSON output. For each
+recommendation, it sends only role, current/target grade, career goal, preferred
+language, event ID/title, deterministic score, exact skill impacts, history
+signal, and deterministic reasons. It does not send names, the full employee
+record, other employees, or the complete datasets.
+
+Each explanation has this dashboard-oriented shape:
+
+```json
+{
+  "source": "openai",
+  "headline": "Build your System Design skills for Senior",
+  "summary": "This quest addresses a verified target-grade skill gap.",
+  "why_this_quest": ["It can move System Design from level 2 to level 3."],
+  "expected_impact": "System Design: 2 → 3, target 4",
+  "career_connection": "This is a concrete step toward the Senior requirement.",
+  "history_insight": "Your participation history was included in the score."
+}
+```
+
+If the key or SDK is missing, or the API fails, times out, exhausts quota, or
+returns invalid output, the same endpoint returns a deterministic explanation
+with `"source": "deterministic"`. The employee dashboard therefore does not
+depend on OpenAI availability. English (`en`), Russian (`ru`), and Kazakh (`kk`)
+preferences are passed as output-language instructions; all underlying facts
+remain unchanged.
 
 ## Validation
 
