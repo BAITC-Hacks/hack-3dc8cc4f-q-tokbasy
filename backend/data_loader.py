@@ -22,12 +22,16 @@ class CareerQuestData:
 
         self.employees: list[dict[str, Any]] = employees_document["employees"]
         self.skills: list[dict[str, Any]] = skills_document["skills"]
+        self.role_profiles: list[dict[str, Any]] = skills_document["role_profiles"]
         self.events: list[dict[str, Any]] = events_document["events"]
         self.activities = self._read_activities()
 
         self.employees_by_id = {item["employee_id"]: item for item in self.employees}
         self.skills_by_id = {item["skill_id"]: item for item in self.skills}
         self.events_by_id = {item["event_id"]: item for item in self.events}
+        self.role_profiles_by_key = {
+            (item["role"], item["grade"]): item for item in self.role_profiles
+        }
 
     def _read_json(self, filename: str) -> dict[str, Any]:
         with (self.data_dir / filename).open(encoding="utf-8") as source:
